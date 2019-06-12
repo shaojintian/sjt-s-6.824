@@ -1,0 +1,17 @@
+2019/06/10 04:55:59 rpc.Register: method "CleanupFiles" has 1 input parameters; needs exactly three
+2019/06/10 04:55:59 rpc.Register: method "Lock" has 1 input parameters; needs exactly three
+2019/06/10 04:55:59 rpc.Register: method "Unlock" has 1 input parameters; needs exactly three
+2019/06/10 04:55:59 rpc.Register: method "Wait" has 1 input parameters; needs exactly three
+/var/tmp/824-501/mr55626-master: Starting Map/Reduce task test
+Schedule: 20 mapPhase tasks (10 I/Os)
+Schedule: mapPhase done
+2019/06/10 04:55:59 rpc.Register: method "Lock" has 1 input parameters; needs exactly three
+Schedule: 10 reducePhase tasks (20 I/Os)
+Schedule: reducePhase done
+2019/06/10 04:55:59 rpc.Register: method "Unlock" has 1 input parameters; needs exactly three
+2019/06/10 04:55:59 rpc.Register: method "Lock" has 1 input parameters; needs exactly three
+2019/06/10 04:55:59 rpc.Register: method "Unlock" has 1 input parameters; needs exactly three
+Merge: read mrtmp.test-res-0
+2019/06/10 04:55:59 Merge: open mrtmp.test-res-0: no such file or directory
+exit status 1
+FAIL	mapreduce	0.035s

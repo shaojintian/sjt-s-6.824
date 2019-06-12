@@ -2,8 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"mapreduce"
 	"os"
+	"strconv"
+	"strings"
+	"unicode"
+
+	//"strconv"
 )
 
 //
@@ -13,8 +19,36 @@ import (
 // and look only at the contents argument. The return value is a slice
 // of key/value pairs.
 //
+
+//@ copyright by sit@hnu.edu.cn
 func mapF(filename string, contents string) []mapreduce.KeyValue {
 	// Your code here (Part II).
+
+	//FIND ALL words  but not  operate  to  unique  keys
+	words := strings.FieldsFunc(contents,func(r rune)bool{
+
+		if unicode.IsLetter(r){
+			return false
+		}
+
+		return true
+
+	})
+
+	//  key  must be unique
+
+	kvSlice := make([]mapreduce.KeyValue,0,len(words))
+
+	for _ , word := range  words{
+
+		kvSlice = append(kvSlice , mapreduce.KeyValue{word,"1"})
+	}
+
+
+
+
+	return kvSlice
+
 }
 
 //
@@ -24,6 +58,19 @@ func mapF(filename string, contents string) []mapreduce.KeyValue {
 //
 func reduceF(key string, values []string) string {
 	// Your code here (Part II).
+
+	var ans int
+	for _ , value := range  values{
+		intValue , err := strconv.Atoi(value)
+
+		if err != nil  {log.Fatalln(err)}
+
+		ans += intValue
+	}
+	// 1+1+1+1+1 + ... +1  =  n     n(int) to n(string)
+	//fmt.Println("**********",ans)
+	// int to string   !!!!!!  not  string(int) !!!!!
+	return strconv.Itoa(ans)
 }
 
 // Can be run in 3 ways:

@@ -38,7 +38,7 @@ type RegisterArgs struct {
 // reply in reply. the reply argument should be the address
 // of a reply structure.
 //
-// call() returns true if the server responded, and false if call()
+// ####call() returns true if the server responded,### and false if call()
 // received no reply from the server. reply's contents are valid if
 // and only if call() returned true.
 //
