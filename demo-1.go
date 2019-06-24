@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"time"
 )
@@ -10,11 +11,14 @@ func init(){
 }
 func main() {
 
-	timer := time.NewTimer(1*time.Second)
-	<-timer.C
-	timer.Reset(time.Second)
-	timer.Reset(time.Second)
-	<-timer.C
-	//<-timer.C
-
+	const(
+		b =  10 * (iota)
+		kb
+		mb
+		gb
+		tb
+		pb
+	)
+	s := []int{1,2,3}
+	fmt.Println(s[0:2])
 }

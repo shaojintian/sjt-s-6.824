@@ -1,5 +1,6 @@
 package raft
 
+//copyright by 湖南大学-邵靳天  sjt@hnu.edu.cn
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
@@ -19,13 +20,12 @@ package raft
 
 import (
 	"fmt"
-	"6.824/src/labrpc"
 	"math/rand"
 	"sync"
-	"time"
-
 	"sync/atomic"
+	"time"
 )
+import "6.824/src/labrpc"
 
 // import "bytes"
 // import "encoding/gob"
@@ -35,10 +35,12 @@ const (
 	CANDIDATE
 	LEADER
 
-	HEARTBEAT_INTERVAL    = 100
+	HEART_INTERVAL = 100
 	MIN_ELECTION_INTERVAL = 400
-	MAX_ELECTION_INTERVAL = 500
+	MAX_ELECTION_INTERVAL = 800
+
 )
+var stateDic = []string{"FOLLOWER","CANDIDATE","LEADER"}
 
 
 //
@@ -47,11 +49,12 @@ const (
 // tester) on the same server, via the applyCh passed to Make().
 //
 type ApplyMsg struct {
-	CommandIndex       int
+	Index       int
 	Command     interface{}
-	CommandValid bool
 	UseSnapshot bool   // ignore for lab2; only used in lab3
 	Snapshot    []byte // ignore for lab2; only used in lab3
+	CommandValid	bool
+	CommandIndex	int
 }
 
 //
@@ -64,29 +67,27 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 
 	// Your data here (2A, 2B, 2C).
+	votedFor		int
+	voteAcquired	int
+	currentTerm		int32
+	state   		int32
+
+	electionTimer	*time.Timer//400~800ms
+
+	appendCh		chan struct{}//log 通知载体
+	voteCh			chan struct{}//成功投票的vote 通知载体
+
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	votedFor     int
-	voteAcquired int
-	state        int32
-	currentTerm  int32
 
-	electionTimer *time.Timer
-	voteCh        chan struct{} // 成功投票的信号
-	appendCh      chan struct{} // 成功更新 log 的信号
+
 }
+//###确认状态
+func(rf *Raft) isState(state int32) bool{
 
-// atomic operations
-func (rf *Raft) getTerm() int32 {
-	return atomic.LoadInt32(&rf.currentTerm)
-}
 
-func (rf *Raft) incrementTerm() {
-	atomic.AddInt32(&rf.currentTerm, 1)
-}
-
-func (rf *Raft) isState(state int32) bool {
-	return atomic.LoadInt32(&rf.state) == state
+	ok := state == atomic.LoadInt32(&rf.state)
+	return ok
 }
 
 // return currentTerm and whether this server
@@ -96,8 +97,9 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
-	term = int(rf.getTerm())
+	term = int(rf.currentTerm)
 	isleader = rf.isState(LEADER)
+
 	return term, isleader
 }
 
@@ -132,14 +134,17 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 }
 
+
+
+
 //
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	Term        int32
-	CandidateId int
+	Term 		int32
+	CandidateID int
 }
 
 //
@@ -148,63 +153,50 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	Term        int32
-	VoteGranted bool
+	Term 		int32
+	VoteOrNot	bool
 }
 
 //
 // example RequestVote RPC handler.
 //
+//此函数代表所有的节点收到candidate的 request 后做出的反应
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	//这个函数也是原子性的，前面已经在election()函数中锁过了
+	// if candidate正常广播投票
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if args.Term < rf.currentTerm {
-		reply.VoteGranted = false
-		reply.Term = rf.currentTerm
-	} else if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
-		rf.updateStateTo(FOLLOWER)
-		rf.votedFor = args.CandidateId
-		reply.VoteGranted = true
-	} else {
-		if rf.votedFor == -1 {
-			rf.votedFor = args.CandidateId
-			reply.VoteGranted = true
-		} else {
-			reply.VoteGranted = false
+	rf.mu.Unlock()
+	if args.Term == rf.currentTerm{
+		// 某其余节点还未给别人投票,那就给这个candidate vote
+		if rf.votedFor == -1{
+			reply.VoteOrNot = true
+			//更新信息，已投票
+			rf.votedFor = args.CandidateID
+		//已经给别人投了
+		}else {
+			reply.VoteOrNot = false
 		}
-	}
-	if reply.VoteGranted == true {
-		go func() { rf.voteCh <- struct{}{} }()
-	}
-}
-
-type AppendEntriesArgs struct {
-	Term     int32
-	LeaderId int
-}
-
-type AppendEntriesReply struct {
-	Term    int32
-	Success bool
-}
-
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
-	if args.Term < rf.currentTerm {
-		reply.Success = false
-		reply.Term = rf.currentTerm
-	} else if args.Term > rf.currentTerm {
+	//candidate节点早进入下一阶段,那就强行将此节点转回follower，继续投票
+	}else  if args.Term > rf.currentTerm{
+		//不管怎么样退回follower
+		rf.uptoState(FOLLOWER)
+		rf.votedFor = args.CandidateID
 		rf.currentTerm = args.Term
-		rf.updateStateTo(FOLLOWER)
-		reply.Success = true
-	} else {
-		reply.Success = true
+		reply.VoteOrNot = true
+	//candidate 过期了！！！
+	}else if args.Term < rf.currentTerm{
+		reply.VoteOrNot =false
+		//后续在broadcastRV 函数中candidate转回follower
 	}
-	go func() { rf.appendCh <- struct{}{} }()
+
+	reply.Term = rf.currentTerm
+
+	if reply.VoteOrNot == true{
+		//投票成功消息写入channel of vote
+		go func() {rf.voteCh <- struct{}{}}()
+	}
+
 }
 
 //
@@ -240,30 +232,58 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+//**********************
+//仿照上面写心跳机制的RPC
+func (rf *Raft) sendAppendEntry(server int ,args *AppendEntryArgs,reply *AppendEntryReply)bool{
+	ok := rf.peers[server].Call("Raft.AppendEntry",args,reply)
 	return ok
-}
 
-//
-// the service using Raft (e.g. a k/v server) wants to start
-// agreement on the next command to be appended to Raft's log. if this
-// server isn't the leader, returns false. otherwise start the
-// agreement and return immediately. there is no guarantee that this
-// command will ever be committed to the Raft log, since the leader
-// may fail or lose an election.
-//
-// the first return value is the index that the command will appear at
-// if it's ever committed. the second return value is the current
-// term. the third return value is true if this server believes it is
-// the leader.
-//
+}
+type AppendEntryArgs struct {
+	Term 		int32
+	LeaderID 	int
+}
+type AppendEntryReply struct {
+	Term 		int32
+	AppendOrNot	bool
+}
+//其他节点收到Append后的反应,rf指的是follower节点
+func (rf *Raft) AppendEntry(args *AppendEntryArgs,reply *AppendEntryReply){
+	//lock to block
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term == rf.currentTerm{
+		reply.AppendOrNot = true
+		//leader过期，回退到follower
+	}else if(args.Term < rf.currentTerm){
+		args.Term = rf.currentTerm
+		reply.AppendOrNot = false
+	}else {
+		//follower过期
+		rf.uptoState(FOLLOWER)
+		rf.currentTerm = args.Term
+		reply.AppendOrNot = true
+
+	}
+	reply.Term = rf.currentTerm
+	if reply.AppendOrNot {
+		go func() {
+			rf.appendCh<- struct{}{}
+		}()
+	}
+
+
+}
+//***********************
+
+
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
 
 	// Your code here (2B).
+
 
 	return index, term, isLeader
 }
@@ -291,17 +311,20 @@ func (rf *Raft) Kill() {
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
+	//新的一个节点
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	rf.state = FOLLOWER
-	rf.votedFor = -1 // init with -1, because server id start from 0
-	rf.voteCh = make(chan struct{})
-	rf.appendCh = make(chan struct{})
-
+	rf.currentTerm = 0
+	rf.state= FOLLOWER
+	rf.electionTimer = time.NewTimer(randElectionInterval())
+	rf.votedFor = -1
+	rf.appendCh = make(chan struct{})//no buffer
+	rf.voteCh = make(chan  struct{})
+	rf.voteAcquired =0;//获得0 votes
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
@@ -309,134 +332,177 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	return rf
 }
+//生成400-800ms(400+(0~400))的election interval
+func  randElectionInterval() time.Duration{
 
-func randElectionDuration() time.Duration {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return time.Millisecond * time.Duration(r.Int63n(MAX_ELECTION_INTERVAL-MIN_ELECTION_INTERVAL)+MIN_ELECTION_INTERVAL)
+	//var interval time.Duration
+	// 400~ 800 ms
+	timeInterval := r.Int31n(MAX_ELECTION_INTERVAL-MIN_ELECTION_INTERVAL)+MIN_ELECTION_INTERVAL
+
+	return time.Duration(timeInterval) * time.Millisecond
+
+}
+//  Make  下 goroutine 控制节点的state
+
+func (rf *Raft) startLoop(){
+	for {
+		state := atomic.LoadInt32(&rf.state)
+		switch state {
+		case FOLLOWER:
+			select {
+			case <-rf.electionTimer.C:
+				rf.mu.Lock()
+				rf.uptoState(CANDIDATE)
+				rf.mu.Unlock()
+			case <-rf.voteCh:
+				rf.electionTimer.Reset(randElectionInterval())
+			case <-rf.appendCh:
+				rf.electionTimer.Reset(randElectionInterval())
+			}
+
+		case CANDIDATE:
+
+			select {
+			case <-rf.electionTimer.C:
+				//超时重新election
+				rf.startElection()
+			case <-rf.appendCh:
+				rf.mu.Lock()
+				rf.uptoState(FOLLOWER)
+				rf.mu.Unlock()
+			default:
+				// check if it has collected enough vote
+				if rf.voteAcquired > len(rf.peers)/2 {
+					rf.mu.Lock()
+					rf.uptoState(LEADER)
+					rf.mu.Unlock()
+				}
+			}
+
+			//把锁锁在function之外可以保证传入参数的并发安全性，以免多次传入覆盖.
+			//锁在函数内部无法锁住函数的传入参数
+			//多协程的局部变量共享一个地址空间
+		case LEADER:
+			//间隔心跳时间广播发送log replication
+			rf.broadcastAppendEntries()
+			time.Sleep(time.Duration(HEART_INTERVAL)*time.Millisecond)
+
+		}
+
+
+	}
+
+
 }
 
-func (rf *Raft) updateStateTo(state int32) {
-	// should always been protected by lock
+//修改node 状态,必须为这个函数加锁，因为修改函数必须是原子性的
 
-	if rf.isState(state) {
+func (rf *Raft) uptoState(newState int32){
+
+	if rf.isState(newState){
 		return
 	}
-	stateDesc := []string{"FOLLOWER", "CANDIDATE", "LEADER"}
 	preState := rf.state
-
-	switch state {
+	switch newState{
 	case FOLLOWER:
 		rf.state = FOLLOWER
-		rf.votedFor = -1 // prepare for next election
+		rf.votedFor = -1
 	case CANDIDATE:
 		rf.state = CANDIDATE
+		//立即开始选举
 		rf.startElection()
 	case LEADER:
 		rf.state = LEADER
 	default:
-		fmt.Printf("Warning: invalid state %d, do nothing.\n", state)
+		fmt.Println("raft.go 307 , Invalid newState in func <uptoState> ")
+
 	}
-	fmt.Printf("In term %d: Server %d transfer from %s to %s\n",
-		rf.currentTerm, rf.me, stateDesc[preState], stateDesc[rf.state])
+	//输出转换结果
+	fmt.Printf("In Term %d rf State change from %s to %s\n",rf.currentTerm,stateDic[preState],stateDic[newState])
+
 }
+//candidate 开始选举
 
-func (rf *Raft) startElection() {
-	// should always been protected by lock
-
-	rf.incrementTerm()
+func(rf *Raft) startElection(){
+	//reset timer
+	rf.electionTimer.Reset(randElectionInterval())
+	//term++
+	atomic.AddInt32(&rf.currentTerm,1)
+	//fmt.Printf("===Term %d ,Starting Election===\n",rf.currentTerm)
+	rf.voteAcquired = 1  //给自己增加一个票数
 	rf.votedFor = rf.me
-	rf.voteAcquired = 1
-	rf.electionTimer.Reset(randElectionDuration())
-	rf.broadcastVoteReq()
-}
+	rf.broadcastRV()
 
-func (rf *Raft) broadcastVoteReq() {
-	args := RequestVoteArgs{Term: atomic.LoadInt32(&rf.currentTerm), CandidateId: rf.me}
-	for i, _ := range rf.peers {
-		if i == rf.me {
+}
+// candidate  全局广播 request votes
+func (rf *Raft) broadcastRV(){
+	n := len(rf.peers)
+	//fmt.Printf("[]peers.size==%d\n",n)
+	//写好票的变量
+	args := RequestVoteArgs{Term:rf.currentTerm,CandidateID:rf.me}
+	//向除自身以外，所有的节点投放Request Vote ,异步调用RPC
+	for i := 0; i<n ; i++ {
+		//if 这个节点是本身，那就跳过
+		if i == rf.me{
 			continue
 		}
-		go func(server int) {
+		//对其余节点，RV
+		//注意i 必须写入 否则都是 n-1
+		go func(other_node int) {
 			var reply RequestVoteReply
-			if rf.isState(CANDIDATE) && rf.sendRequestVote(server, &args, &reply) {
+			//如果发成功了
+			if rf.isState(CANDIDATE) && rf.sendRequestVote(other_node,&args,&reply){
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
-
-				if reply.VoteGranted == true {
-					rf.voteAcquired += 1
-				} else {
-					if reply.Term > rf.currentTerm {
+				if reply.VoteOrNot{
+					rf.voteAcquired+=1
+					//fmt.Printf("In Term %d , rf.voteAcquired=%d \n",rf.currentTerm,rf.voteAcquired)
+				}else {
+					//candidate 过期了
+					if reply.Term > rf.currentTerm{
+						rf.uptoState(FOLLOWER)
+						rf.votedFor =-1
+						rf.voteAcquired = 0
 						rf.currentTerm = reply.Term
-						rf.updateStateTo(FOLLOWER)
 					}
 				}
-			} else {
-				fmt.Printf("Server %d send vote req failed.\n", rf.me)
+			}else {
+				//fmt.Printf("func <broadcastRV>  send RequestVote to %d node err!\n",other_node)
 			}
 		}(i)
-	}
-}
 
-func (rf *Raft) broadcastAppendEntries() {
-	args := AppendEntriesArgs{Term: atomic.LoadInt32(&rf.currentTerm), LeaderId: rf.me}
-	for i, _ := range rf.peers {
-		if i == rf.me {
+	}
+
+}
+//leader 全局广播append entry
+
+func(rf *Raft) broadcastAppendEntries(){
+	n := len(rf.peers)
+	//写好append Entry的 args
+	args := AppendEntryArgs{Term:rf.currentTerm,LeaderID:rf.me}
+	//发起append
+	for i:=0; i<n; i++ {
+		if i==rf.me {
 			continue
 		}
+		//rpc
 		go func(server int) {
-			var reply AppendEntriesReply
-			if rf.isState(LEADER) && rf.sendAppendEntries(server, &args, &reply) {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				if reply.Success == true {
-
-				} else {
-					if reply.Term > rf.currentTerm {
-						rf.currentTerm = reply.Term
-						rf.updateStateTo(FOLLOWER)
-					}
+			var reply AppendEntryReply
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
+			if rf.sendAppendEntry(server,&args,&reply) {
+				if !reply.AppendOrNot{
+					//leader要回退到follower
+					rf.uptoState(FOLLOWER)
 				}
 			}
 		}(i)
+
 	}
+
+
+
+
 }
 
-func (rf *Raft) startLoop() {
-	rf.electionTimer = time.NewTimer(randElectionDuration())
-	for {
-		switch atomic.LoadInt32(&rf.state) {
-		case FOLLOWER:
-			select {
-			case <-rf.voteCh:
-				rf.electionTimer.Reset(randElectionDuration())
-			case <-rf.appendCh:
-				rf.electionTimer.Reset(randElectionDuration())
-			case <-rf.electionTimer.C:
-				rf.mu.Lock()
-				rf.updateStateTo(CANDIDATE)
-				rf.mu.Unlock()
-			}
-
-		case CANDIDATE:
-			rf.mu.Lock()
-			select {
-			// a candicate will not trigger voteCh
-			// because it has voted for itself
-			case <-rf.appendCh:
-				rf.updateStateTo(FOLLOWER)
-			case <-rf.electionTimer.C:
-				rf.electionTimer.Reset(randElectionDuration())
-				rf.startElection()
-			default:
-				// check if it has collected enough vote
-				if rf.voteAcquired > len(rf.peers)/2 {
-					rf.updateStateTo(LEADER)
-				}
-			}
-			rf.mu.Unlock()
-		case LEADER:
-			rf.broadcastAppendEntries()
-			time.Sleep(HEARTBEAT_INTERVAL * time.Millisecond)
-		}
-	}
-}

@@ -1,9 +1,57 @@
+=== RUN   TestInitialElection2A
 Test (2A): initial election ...
---- FAIL: TestInitialElection2A (4.90s)
+===Starting Election===
+In Term 1 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+In Term 2 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+In Term 3 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+===Starting Election===
+===Starting Election===
+===Starting Election===
+===Starting Election===
+--- FAIL: TestInitialElection2A (5.13s)
     config.go:326: expected one leader, got none
+=== RUN   TestReElection2A
 Test (2A): election after network failure ...
---- FAIL: TestReElection2A (5.10s)
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+In Term 1 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+func <broadcastRV>  send RequestVote to 1 node err
+func <broadcastRV>  send RequestVote to 0 node err
+===Starting Election===
+In Term 2 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+In Term 3 rf State change from FOLLOWER to CANDIDATE
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+===Starting Election===
+func <broadcastRV>  send RequestVote to 0 node err
+func <broadcastRV>  send RequestVote to 1 node err
+===Starting Election===
+--- FAIL: TestReElection2A (5.06s)
     config.go:326: expected one leader, got none
 FAIL
 exit status 1
-FAIL	raft	10.002s
+FAIL	6.824/src/raft	10.195s
